@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JmL Task Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Tailwind gray-100 */
+        }
+        .kanban-column {
+            min-height: 300px; /* Minimum height for columns */
+            transition: background-color 0.2s ease-in-out;
+        }
+        .kanban-column.drag-over {
+            background-color: #e0e7ff; /* Tailwind indigo-100 for drag hover */
+        }
+        .task-card {
+            cursor: grab;
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        }
+        .task-card:active {
+            cursor: grabbing;
+            transform: scale(1.05);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); /* Tailwind shadow-lg */
+        }
+        .task-card.done {
+            text-decoration: line-through;
+            background-color: #d1fae5; /* Tailwind green-100 */
+            border-color: #6ee7b7; /* Tailwind green-300 */
+        }
+        .delete-task-btn {
+            transition: color 0.2s ease-in-out;
+        }
+        .delete-task-btn:hover {
+            color: #ef4444; /* Tailwind red-500 */
+        }
+        /* Confetti canvas styling */
+        #confetti-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Allows clicks to pass through */
+            z-index: 9999;
+        }
+    </style>
+</head>
+<body class="antialiased text-slate-700">
+    <canvas id="confetti-canvas"></canvas>
+
+    <div class="container mx-auto p-4 md:p-8 max-w-6xl">
+        <header class="mb-8 text-center">
+            <h1 class="text-4xl font-bold text-slate-800">JmL Task Tracker</h1>
+            <p class="text-slate-500">Organize your work, one task at a time.</p>
+        </header>
+
+        <div class="mb-6 p-6 bg-white rounded-xl shadow-lg">
+            <h2 class="text-2xl font-semibold mb-4 text-slate-700">Add New Task</h2>
+            <div class="flex flex-col sm:flex-row gap-4">
+                <input type="text" id="task-input" placeholder="Enter task description..." class="flex-grow p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-shadow">
+                <button id="add-task-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition-all duration-150 ease-in-out transform hover:scale-105">
+                    Add Task
+                </button>
+            </div>
+        </div>
+
+        <div class="mb-8 text-center">
+            <button id="clear-all-tasks-btn" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:shadow-lg transition-all duration-150 ease-in-out transform hover:scale-105">
+                Clear All Tasks
+            </button>
+            <button id="clear-completed-tasks-btn"
+                class="bg-orange-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:shadow-lg transition-all duration-150 ease-in-out transform hover:scale-105">
+                Clear Completed Tasks
+            </button>
+        </div>
+
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div id="todo-column" class="kanban-column bg-slate-200 p-5 rounded-xl shadow-md">
+                <h3 class="text-xl font-semibold mb-4 text-slate-700 border-b-2 border-slate-300 pb-2">To Do</h3>
+                <div id="todo-tasks" class="space-y-3 min-h-[200px]">
+                    </div>
+            </div>
+
+            <div id="inprogress-column" class="kanban-column bg-slate-200 p-5 rounded-xl shadow-md">
+                <h3 class="text-xl font-semibold mb-4 text-slate-700 border-b-2 border-slate-300 pb-2">In Progress</h3>
+                <div id="inprogress-tasks" class="space-y-3 min-h-[200px]">
+                    </div>
+            </div>
+
+            <div id="done-column" class="kanban-column bg-slate-200 p-5 rounded-xl shadow-md">
+                <h3 class="text-xl font-semibold mb-4 text-slate-700 border-b-2 border-slate-300 pb-2">Done</h3>
+                <div id="done-tasks" class="space-y-3 min-h-[200px]">
+                    </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const taskInput = document.getElementById('task-input');
+        const addTaskBtn = document.getElementById('add-task-btn');
+        const todoTasksContainer = document.getElementById('todo-tasks');
+        const inprogressTasksContainer = document.getElementById('inprogress-tasks');
+        const doneTasksContainer = document.getElementById('done-tasks');
+        const columns = document.querySelectorAll('.kanban-column');
+        const confettiCanvas = document.getElementById('confetti-canvas');
+        const clearAllTasksBtn = document.getElementById('clear-all-tasks-btn'); // New button
+        const clearCompletedTasksBtn = document.getElementById('clear-completed-tasks-btn'); // New button
+
+        // Initialize Confetti
+        const myConfetti = confetti.create(confettiCanvas, {
+            resize: true,
+            useWorker: true
+        });
+
+        // --- Task Management ---
+
+        // Function to create a new task element
+        function createTaskElement(taskText, taskId, isDone = false) {
+            const taskCard = document.createElement('div');
+            taskCard.classList.add('task-card', 'bg-white', 'p-4', 'rounded-lg', 'shadow-sm', 'border', 'border-slate-200', 'flex', 'justify-between', 'items-center');
+            if (isDone) {
+                taskCard.classList.add('done');
+            }
+            taskCard.setAttribute('draggable', 'true');
+            taskCard.setAttribute('id', taskId);
+
+            const taskContent = document.createElement('p');
+            taskContent.textContent = taskText;
+            taskContent.classList.add('text-slate-700', 'flex-grow', 'mr-2');
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.innerHTML = '&#x2715;'; // Cross mark
+            deleteBtn.classList.add('delete-task-btn', 'text-slate-400', 'hover:text-red-500', 'font-bold', 'text-lg');
+            deleteBtn.title = "Delete task";
+
+            deleteBtn.addEventListener('click', () => {
+                taskCard.remove();
+                saveTasksToLocalStorage(); // Update local storage after deleting
+            });
+
+            taskCard.appendChild(taskContent);
+            taskCard.appendChild(deleteBtn);
+
+            // Drag and Drop Event Listeners for the task card
+            taskCard.addEventListener('dragstart', (event) => {
+                event.dataTransfer.setData('text/plain', event.target.id);
+                event.target.classList.add('opacity-50'); // Visual feedback for dragging
+            });
+
+            taskCard.addEventListener('dragend', (event) => {
+                event.target.classList.remove('opacity-50');
+            });
+
+            return taskCard;
+        }
+
+        // Function to add a new task
+        function addTask() {
+            const taskText = taskInput.value.trim();
+            if (taskText === '') {
+                // A more user-friendly message could be a modal or a styled notification
+                // For simplicity, we'll use alert for now.
+                const existingAlert = document.querySelector('.custom-alert');
+                if (existingAlert) existingAlert.remove();
+
+                const alertBox = document.createElement('div');
+                alertBox.textContent = 'Please enter a task description.';
+                alertBox.classList.add('custom-alert', 'fixed', 'top-5', 'left-1/2', '-translate-x-1/2', 'bg-yellow-400', 'text-yellow-800', 'p-3', 'rounded-lg', 'shadow-md', 'z-50');
+                document.body.appendChild(alertBox);
+                setTimeout(() => alertBox.remove(), 3000);
+                return;
+            }
+
+            const taskId = 'task-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+            const newTask = createTaskElement(taskText, taskId);
+            todoTasksContainer.appendChild(newTask);
+            taskInput.value = ''; // Clear input field
+            saveTasksToLocalStorage();
+        }
+
+        // Event listener for adding a task
+        addTaskBtn.addEventListener('click', addTask);
+        taskInput.addEventListener('keypress', (event) => {
+            if (event.key === 'Enter') {
+                addTask();
+            }
+        });
+
+        // --- Drag and Drop Functionality for Columns ---
+        columns.forEach(column => {
+            const taskContainer = column.querySelector('.space-y-3'); // Get the direct child for tasks
+
+            column.addEventListener('dragover', (event) => {
+                event.preventDefault(); // Allow dropping
+                column.classList.add('drag-over');
+            });
+
+            column.addEventListener('dragleave', () => {
+                column.classList.remove('drag-over');
+            });
+
+            column.addEventListener('drop', (event) => {
+                event.preventDefault();
+                column.classList.remove('drag-over');
+                const taskId = event.dataTransfer.getData('text/plain');
+                const draggableElement = document.getElementById(taskId);
+
+                if (draggableElement && taskContainer) {
+                    // const previousColumnId = draggableElement.parentElement.parentElement.id; // Not strictly needed for this logic
+                    taskContainer.appendChild(draggableElement);
+
+                    // Check if dropped in "Done" column
+                    if (column.id === 'done-column') {
+                        draggableElement.classList.add('done');
+                        // Trigger confetti!
+                        myConfetti({
+                            particleCount: 150,
+                            spread: 90,
+                            origin: { y: 0.6 }
+                        });
+                    } else {
+                        draggableElement.classList.remove('done');
+                    }
+                    saveTasksToLocalStorage();
+                }
+            });
+        });
+
+        // --- Clear All Tasks Functionality ---
+        clearAllTasksBtn.addEventListener('click', () => {
+            // Confirmation dialog
+            // For a better UX, consider a custom modal instead of confirm()
+            const userConfirmed = confirm("Are you sure you want to delete ALL tasks? This action cannot be undone.");
+
+            if (userConfirmed) {
+                // Clear tasks from each column's container
+                todoTasksContainer.innerHTML = '';
+                inprogressTasksContainer.innerHTML = '';
+                doneTasksContainer.innerHTML = '';
+
+                // Update local storage to reflect the empty state
+                saveTasksToLocalStorage();
+                console.log("All tasks cleared."); // Optional: for debugging
+            }
+        });
+
+        // --- Clear Completed Tasks Functionality ---
+        clearCompletedTasksBtn.addEventListener('click', () => {
+            // Confirmation dialog
+            // For a better UX, consider a custom modal instead of confirm()
+            const userConfirmed = confirm("Are you sure you want to delete ALL Completed tasks? This action cannot be undone.");
+
+            if (userConfirmed) {
+                // Clear tasks from each column's container
+                doneTasksContainer.innerHTML = '';
+
+                // Update local storage to reflect the empty state
+                saveTasksToLocalStorage();
+                console.log("All completed tasks cleared."); // Optional: for debugging
+            }
+        });
+
+        // --- Local Storage ---
+        function saveTasksToLocalStorage() {
+            const tasks = {
+                todo: [],
+                inprogress: [],
+                done: []
+            };
+
+            todoTasksContainer.querySelectorAll('.task-card').forEach(task => {
+                tasks.todo.push({ id: task.id, text: task.querySelector('p').textContent });
+            });
+            inprogressTasksContainer.querySelectorAll('.task-card').forEach(task => {
+                tasks.inprogress.push({ id: task.id, text: task.querySelector('p').textContent });
+            });
+            doneTasksContainer.querySelectorAll('.task-card').forEach(task => {
+                tasks.done.push({ id: task.id, text: task.querySelector('p').textContent, isDone: true });
+            });
+
+            localStorage.setItem('kanbanTasks', JSON.stringify(tasks));
+        }
+
+        function loadTasksFromLocalStorage() {
+            const storedTasks = localStorage.getItem('kanbanTasks');
+            if (storedTasks) {
+                const tasks = JSON.parse(storedTasks);
+
+                tasks.todo.forEach(taskData => {
+                    const taskEl = createTaskElement(taskData.text, taskData.id);
+                    todoTasksContainer.appendChild(taskEl);
+                });
+                tasks.inprogress.forEach(taskData => {
+                    const taskEl = createTaskElement(taskData.text, taskData.id);
+                    inprogressTasksContainer.appendChild(taskEl);
+                });
+                tasks.done.forEach(taskData => {
+                    const taskEl = createTaskElement(taskData.text, taskData.id, true);
+                    doneTasksContainer.appendChild(taskEl);
+                });
+            }
+        }
+
+        // Load tasks when the page loads
+        document.addEventListener('DOMContentLoaded', loadTasksFromLocalStorage);
+
+    </script>
+</body>
+</html>
