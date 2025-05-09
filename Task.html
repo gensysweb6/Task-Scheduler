@@ -286,11 +286,11 @@
                 tasks.done.push({ id: task.id, text: task.querySelector('p').textContent, isDone: true });
             });
 
-            localStorage.setItem('kanbanTasks', JSON.stringify(tasks));
+            localStorage.setItem('todoTasks', JSON.stringify(tasks));
         }
 
         function loadTasksFromLocalStorage() {
-            const storedTasks = localStorage.getItem('kanbanTasks');
+            const storedTasks = localStorage.getItem('todoTasks');
             if (storedTasks) {
                 const tasks = JSON.parse(storedTasks);
 
